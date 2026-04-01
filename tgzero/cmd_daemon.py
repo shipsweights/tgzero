@@ -16,6 +16,7 @@ Behaviours
   before exiting.
 """
 
+import shlex
 import signal
 import subprocess
 import sys
@@ -83,8 +84,9 @@ def _flush_stale(token: str) -> int | None:
 
 def _execute_command(command: str, allow_list: list[str]) -> str:
     """Runs an allow-listed command and returns its output (truncated to 3900 chars)."""
+    cmd_parts = shlex.split(command)
     result = subprocess.run(
-        command,
+        cmd_parts,
         shell=False,          # Never shell=True — command is a plain string
         capture_output=True,
         text=True,

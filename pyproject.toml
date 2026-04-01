@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "tgzero"
-version         = "0.1.0"
+version         = "0.1.1"
 description     = "Zero-dependency, stdlib-only Telegram bridge for two-way CLI automation. Simple alerts or interactive command-and-control using nothing but the Python standard library."
 readme          = "README.md"
 license         = { text = "MIT" }

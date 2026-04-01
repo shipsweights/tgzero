@@ -15,3 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Clock drift detection on daemon startup
 - 60-second stale message filtering
 - Zero runtime dependencies — pure stdlib
+
+## [0.1.1] - 2026-04-01
+### Fixed
+- Daemon command execution: fixed "No such file or directory" error when allow-listed commands contained arguments/spaces (using `shlex`).
