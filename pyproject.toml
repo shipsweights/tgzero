@@ -1,0 +1,43 @@
+[build-system]
+requires      = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "tgzero"
+version         = "0.1.0"
+description     = "Zero-dependency, stdlib-only Telegram bridge for two-way CLI automation. Simple alerts or interactive command-and-control using nothing but the Python standard library."
+readme          = "README.md"
+license         = { text = "MIT" }
+requires-python = ">=3.10"
+authors         = [{ name = "shipsweights" }]
+keywords        = ["telegram", "cli", "notifications", "devops", "c2", "automation"]
+classifiers     = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Topic :: Communications :: Chat",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Developers",
+]
+
+dependencies = []
+
+[project.urls]
+Homepage   = "https://github.com/shipsweights/tgzero"
+Repository = "https://github.com/shipsweights/tgzero"
+
+[project.scripts]
+tgzero = "tgzero.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["tgzero*"]
