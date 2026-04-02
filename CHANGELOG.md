@@ -6,6 +6,68 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.2] - 2026-04-02
+
+Security and reliability hardening across the codebase. No new features.
+
+### Fixed
+
+**`lock.py`** — high severity
+- Replaced `os.path.exists()` + write sequence with `os.open(O_CREAT | O_EXCL)` —
+  a single atomic syscall that eliminates the TOCTOU race condition on acquisition
+- Lock file now stores `"<pid>:<nonce>"` (random 8-byte hex token); `release()`
+  verifies both PID and nonce before removing — a slow waking process can no
+  longer accidentally delete a new holder's lock
+- Lock file is `chmod 600` immediately after creation; moved into a per-user
+  directory (`$XDG_RUNTIME_DIR` → `$TMPDIR` → `/tmp/tgzero-<uid>` at `0700`)
+  so other local users cannot observe or interfere with it
+
+**`cmd_ask.py`** — high severity
+- `_get_offset()` (formerly `_flush_pending_updates()`) is now called *before*
+  `send_message()` — closes a window where a fast reply arriving between sending
+  the prompt and establishing the offset would be silently discarded
+- User-supplied `--prompt` text is now passed through `sanitize()` before being
+  embedded in the HTML message
+
+**`cmd_run.py`** — medium severity
+- Added `DEFAULT_TIMEOUT = 300s` to `subprocess.run()` — previously the process
+  could hang forever on a blocking command
+- `subprocess.TimeoutExpired` is now caught; sends a Telegram notification and
+  returns exit code `2`
+- Command string and captured output are now passed through `sanitize()` before
+  being embedded in HTML
+
+**`cmd_daemon.py`**
+- Added `_MIN_CMD_INTERVAL_S = 2.0` rate limit — rapid messages from the
+  authorised chat are rejected with a cooldown reply instead of triggering
+  back-to-back subprocess spawns
+- Empty `sender_id` (channel posts, service messages) is now skipped before
+  the auth check — previously would reach the auth check with an empty string
+- All user-visible strings passed to Telegram are now wrapped in `sanitize()`
+- Allow-list entries logged in quotes on startup for easier operator verification
+- Security and warning output redirected to `stderr`
+
+**`api.py`**
+- `sanitize()` now also escapes `"` → `&quot;`, making it safe in both HTML
+  body and attribute value contexts
+- API error messages redirected to `stderr` so they do not pollute `--json`
+  output pipelines
+
+**`config.py`**
+- Added `strict` mode: `load_config(strict=True)` exits with code `1` on
+  insecure file permissions instead of warning (mirrors SSH's `StrictModes`)
+- Added parent directory write-permission check — a world-writable parent
+  directory is now also flagged as a security risk
+- All warnings and errors redirected to `stderr`
+
+### Known issue
+- `cmd_tail.py`: log lines forwarded to Telegram are not yet passed through
+  `sanitize()` before being embedded in the `<pre>` block. Lines containing
+  `<`, `>`, or `&` (common in stack traces, XML logs, HTML error pages) may
+  cause Telegram's HTML parser to choke. Will be fixed in `0.2.3`.
+
+---
+
 ## [0.2.1] - 2026-04-02
 
 ### Fixed

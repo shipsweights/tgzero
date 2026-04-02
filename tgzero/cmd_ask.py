@@ -19,7 +19,7 @@ import signal
 import sys
 import time
 
-from .api    import answer_callback_query, get_updates, send_message
+from .api    import answer_callback_query, get_updates, sanitize, send_message
 from .config import load_config
 from .lock   import LockError, acquire, release
 
@@ -31,9 +31,6 @@ if sys.stdout.isatty():
     RESET  = "\033[0m"
 else:
     RED = GREEN = YELLOW = RESET = ""
-
-# Sentinel used by signal handler to surface the exit code
-_signal_exit_code: int | None = None
 
 
 def _make_signal_handler(token: str, chat_id: str, use_json: bool):
@@ -58,8 +55,13 @@ def _make_signal_handler(token: str, chat_id: str, use_json: bool):
     return handler
 
 
-def _flush_pending_updates(token: str) -> int | None:
-    """Discards any already-queued updates; returns the next offset to use."""
+def _get_offset(token: str) -> int | None:
+    """Returns the next offset to use (acknowledges all currently queued updates).
+
+    Called *before* sending the prompt so no legitimate reply is ever discarded.
+    Uses a 1-second long-poll to catch anything already in the queue without
+    blocking meaningfully.
+    """
     updates = get_updates(token, long_poll_timeout=1, http_timeout=6)
     if updates:
         return updates[-1]["update_id"] + 1
@@ -82,8 +84,7 @@ def run(args) -> int:
         buttons = ["OK"]
 
     # --- Acquire lockfile queue ----------------------------------------------
-    # We use 2× the user timeout as the queue timeout so a queued process
-    # doesn't give up before it even gets a chance to ask.
+    # Use 2× the user timeout so a queued process gets a fair chance to ask.
     queue_timeout = (args.timeout * 2) if args.timeout else None
 
     try:
@@ -104,12 +105,19 @@ def run(args) -> int:
     signal.signal(signal.SIGINT,  handler)
 
     start_ms  = time.monotonic()
-    exit_code = 3          # default: network failure (overwritten on success)
+    exit_code = 3       # default: network failure (overwritten on success)
     reply_str = None
 
     try:
+        # --- Flush stale updates BEFORE sending the prompt -------------------
+        # This way we establish a clean baseline offset and the poll loop will
+        # only see updates that arrive after the prompt is sent.  If we flushed
+        # after sending we could discard a rapid-fire legitimate reply.
+        offset = _get_offset(token)
+
         # --- Send the prompt -------------------------------------------------
-        ok = send_message(token, chat_id, f"🤖 <b>{args.prompt}</b>",
+        safe_prompt = sanitize(args.prompt)
+        ok = send_message(token, chat_id, f"🤖 <b>{safe_prompt}</b>",
                           buttons=buttons)
         if not ok:
             if not args.json:
@@ -120,9 +128,6 @@ def run(args) -> int:
         if not args.json:
             print(f"{YELLOW}Waiting for Telegram response...{RESET}")
 
-        # Flush stale updates *after* sending the prompt so we don't
-        # accidentally discard the reply that arrives quickly
-        offset = _flush_pending_updates(token)
         deadline = (time.monotonic() + args.timeout) if args.timeout else None
 
         # --- Poll loop -------------------------------------------------------
@@ -135,7 +140,8 @@ def run(args) -> int:
                 break
 
             remaining = max(1, int(deadline - time.monotonic())) if deadline else 25
-            updates   = get_updates(token, offset=offset, long_poll_timeout=min(remaining, 25))
+            updates   = get_updates(token, offset=offset,
+                                    long_poll_timeout=min(remaining, 25))
 
             if updates is None:  # network error surfaced as None
                 exit_code = 3
@@ -170,12 +176,9 @@ def run(args) -> int:
                     exit_code = 0
                 else:
                     exit_code = 1
-                    # Print the literal button label so bash can branch on it
                     if not args.json:
+                        # Print the literal label so bash can branch on it
                         print(reply_str)
-                    else:
-                        # Will be captured in the JSON object below
-                        pass
 
                 if not args.json:
                     colour = GREEN if exit_code == 0 else RED

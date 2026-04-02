@@ -28,8 +28,23 @@ _BASE = "https://api.telegram.org/bot{token}/{method}"
 # ---------------------------------------------------------------------------
 
 def sanitize(text: str) -> str:
-    """Escapes <, >, & for Telegram's HTML parse mode."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    """Escapes HTML special characters for Telegram's HTML parse mode.
+
+    Covers the four characters that have meaning in both tag bodies and
+    attribute values, making the output safe to embed in either context:
+
+        & → &amp;   (must be first to avoid double-escaping)
+        < → &lt;
+        > → &gt;
+        " → &quot;
+    """
+    return (
+        text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 def truncate(text: str, max_length: int = TELEGRAM_MAX_LENGTH) -> str:
@@ -51,11 +66,11 @@ def _post(url: str, payload: dict, timeout: int) -> dict | None:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        print(f"{RED}Telegram API Error ({e.code}): {e.reason}{RESET}")
+        print(f"{RED}Telegram API Error ({e.code}): {e.reason}{RESET}", file=sys.stderr)
     except urllib.error.URLError as e:
-        print(f"{RED}Connection Error: {e.reason}{RESET}")
+        print(f"{RED}Connection Error: {e.reason}{RESET}", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
-        print(f"{RED}Unexpected Error: {e}{RESET}")
+        print(f"{RED}Unexpected Error: {e}{RESET}", file=sys.stderr)
     return None
 
 
@@ -66,11 +81,11 @@ def _get(url: str, timeout: int) -> dict | None:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        print(f"{RED}Telegram API Error ({e.code}): {e.reason}{RESET}")
+        print(f"{RED}Telegram API Error ({e.code}): {e.reason}{RESET}", file=sys.stderr)
     except urllib.error.URLError as e:
-        print(f"{RED}Connection Error: {e.reason}{RESET}")
+        print(f"{RED}Connection Error: {e.reason}{RESET}", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
-        print(f"{RED}Unexpected Error: {e}{RESET}")
+        print(f"{RED}Unexpected Error: {e}{RESET}", file=sys.stderr)
     return None
 
 
@@ -92,7 +107,9 @@ def send_message(
     Args:
         token:    Bot token.
         chat_id:  Destination chat ID.
-        text:     Message body (will be sanitized and truncated automatically).
+        text:     Message body (will be truncated automatically; callers are
+                  responsible for sanitizing any user-supplied content within
+                  the text before passing it here).
         silent:   If True, the notification arrives without a sound.
         buttons:  Optional list of button labels rendered as an inline keyboard.
         timeout:  HTTP timeout in seconds.
@@ -100,7 +117,7 @@ def send_message(
     Returns:
         True on success, False on any error.
     """
-    safe_text = truncate(sanitize(text))
+    safe_text = truncate(text)
 
     payload: dict = {
         "chat_id":               chat_id,

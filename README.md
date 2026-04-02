@@ -100,6 +100,8 @@ tgzero daemon --allow-list "status,reboot,clear-logs" --interval 3
 
 **From your phone:** type `status` → bot replies with command output.
 Unrecognised commands get a `⚠️ Command not permitted` reply.
+Rapid commands are rate-limited — a minimum 2-second cooldown is enforced
+between executions.
 
 #### systemd unit example
 
@@ -124,9 +126,8 @@ WantedBy=multi-user.target
 
 ### `tgzero run` — Execute a command and send its output to Telegram
 
-Runs any shell command locally and sends the output, exit code, and elapsed time
-to Telegram when it completes. Useful for one-shot admin tasks you want to
-trigger remotely and get results back from.
+Runs any shell command locally and sends the output, exit code, and elapsed
+time to Telegram when it completes. Times out after 5 minutes by default.
 
 ```bash
 # Check disk usage
@@ -148,6 +149,15 @@ Filesystem      Size  Used Avail Use% Mounted on
 /dev/sda1        50G   12G   36G  25% /
 ...
 ```
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Command completed and result delivered |
+| `1` | Command not found or config missing |
+| `2` | Command timed out (default: 300s) |
+| `3` | Network / API failure delivering result |
 
 ---
 
@@ -174,8 +184,8 @@ Stop with `Ctrl+C` or `SIGTERM` — the bot sends a shutdown notification to Tel
 
 ### `tgzero ping` — Verify API credentials and network connectivity
 
-Sends a test message to confirm your token, chat ID, and network are all working.
-The first command to run after initial setup.
+Sends a test message to confirm your token, chat ID, and network are all
+working. The first command to run after initial setup.
 
 ```bash
 tgzero ping
@@ -192,7 +202,7 @@ tgzero ping
 
 ```bash
 tgzero version
-# tgzero 0.2.1
+# tgzero 0.2.2
 
 # Also available as a flag
 tgzero --version
@@ -202,9 +212,17 @@ tgzero --version
 
 ## Security Notes
 
-- All messages are validated against `TELEGRAM_CHAT_ID`. Messages from any other sender are logged and ignored.
+- All messages are validated against `TELEGRAM_CHAT_ID`. Messages from any
+  other sender are logged and ignored. Channel posts and service messages with
+  no sender ID are silently dropped.
 - The `daemon` allow-list uses exact string matching — no shell interpolation.
-- `run` and `daemon` use `shlex.split` + `shell=False` — user input is never passed to a shell.
-- HTML special characters are automatically escaped before sending.
+- `run`, `daemon`, and `tail` use `shlex.split` + `shell=False` — user input
+  is never passed to a shell.
+- All user-supplied text embedded in Telegram HTML messages is passed through
+  `sanitize()` — escaping `&`, `<`, `>`, and `"` — before sending.
 - Messages longer than 4096 characters are cleanly truncated.
-- The `.env` file permissions are checked on startup; a warning is printed if the file is world-readable.
+- The lock file used by `ask` is stored in a per-user `0700` directory
+  (`$XDG_RUNTIME_DIR` when available) and is `chmod 600` on creation.
+- The `.env` file permissions are checked on startup; a warning is printed if
+  the file or its parent directory has unsafe permissions. The parent directory
+  write permissions are also checked.

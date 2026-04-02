@@ -8,6 +8,7 @@ Exit codes
 ----------
 0  Command completed and result delivered to Telegram.
 1  Delivery failed or missing config.
+2  Command timed out.
 3  Network / API failure.
 """
 
@@ -17,7 +18,7 @@ import sys
 import time
 from datetime import datetime
 
-from .api    import send_message
+from .api    import sanitize, send_message
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -29,7 +30,8 @@ if sys.stdout.isatty():
 else:
     GREEN = RED = YELLOW = RESET = ""
 
-MAX_OUTPUT = 3900  # leave headroom for the header inside Telegram's 4096 limit
+MAX_OUTPUT       = 3900   # leave headroom for the header inside Telegram's 4096 limit
+DEFAULT_TIMEOUT  = 300    # 5 minutes — sane default for admin tasks
 
 
 def run(args) -> int:
@@ -39,10 +41,12 @@ def run(args) -> int:
         return 1
 
     command = args.command_str
+    timeout = getattr(args, "timeout", None) or DEFAULT_TIMEOUT
+
     print(f"{YELLOW}Running: {command}{RESET}")
 
-    start    = time.monotonic()
-    started  = datetime.now().strftime("%H:%M:%S")
+    start   = time.monotonic()
+    started = datetime.now().strftime("%H:%M:%S")
 
     try:
         result = subprocess.run(
@@ -50,14 +54,24 @@ def run(args) -> int:
             shell=False,
             capture_output=True,
             text=True,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        elapsed = time.monotonic() - start
+        msg = (
+            f"⏱ <b>$ {sanitize(command)}</b>\n"
+            f"Command timed out after {elapsed:.0f}s."
+        )
+        send_message(token, chat_id, msg)
+        print(f"{RED}Timed out after {elapsed:.0f}s{RESET}")
+        return 2
     except FileNotFoundError:
-        msg = f"⚠️ Command not found: <code>{command}</code>"
+        msg = f"⚠️ Command not found: <code>{sanitize(command)}</code>"
         send_message(token, chat_id, msg)
         print(f"{RED}Command not found: {command}{RESET}")
         return 1
     except Exception as e:  # noqa: BLE001
-        send_message(token, chat_id, f"⚠️ Failed to run command: {e}")
+        send_message(token, chat_id, f"⚠️ Failed to run command: {sanitize(str(e))}")
         return 1
 
     elapsed = time.monotonic() - start
@@ -70,14 +84,14 @@ def run(args) -> int:
         output    = output[:MAX_OUTPUT]
         truncated = True
 
-    # Build Telegram message
+    # Build Telegram message — sanitize command so injected HTML can't leak
     header = (
-        f"{status} <b>$ {command}</b>\n"
+        f"{status} <b>$ {sanitize(command)}</b>\n"
         f"Exit: <code>{result.returncode}</code> · "
         f"Started: {started} · "
         f"Took: {elapsed:.1f}s\n"
     )
-    body = f"<pre>{output}</pre>" if output else "<i>(no output)</i>"
+    body = f"<pre>{sanitize(output)}</pre>" if output else "<i>(no output)</i>"
     if truncated:
         body += "\n<i>... output truncated</i>"
 
