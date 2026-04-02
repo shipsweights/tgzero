@@ -5,15 +5,49 @@ Unified CLI entry point.  Installed as the `tgzero` console script.
 
 Usage
 -----
-tgzero send   --msg "…" [--silent] [--json]
-tgzero ask    --prompt "…" [--buttons "A,B"] [--timeout N] [--json]
-tgzero daemon --allow-list "cmd1,cmd2" [--interval N]
+tgzero send    --msg "…" [--silent] [--json]
+tgzero ask     --prompt "…" [--buttons "A,B"] [--timeout N] [--json]
+tgzero daemon  --allow-list "cmd1,cmd2" [--interval N]
+tgzero run     "shell command"
+tgzero tail    <file> [--filter "keyword"] [--label "name"]
+tgzero ping
+tgzero version
 """
 
 import argparse
 import sys
 
 from . import __version__
+
+
+def _print_welcome() -> None:
+    """Prints a friendly overview when tgzero is called with no arguments."""
+    print(f"""
+  tgzero v{__version__} — Zero-dependency, stdlib-only Telegram bridge
+
+  Usage:  tgzero COMMAND [options]
+
+  Commands:
+    send      Send a one-way alert or notification
+    ask       Pause script and wait for button-click approval
+    daemon    Enable remote control: execute commands from Telegram
+    run       Execute a command and send its output to Telegram
+    tail      Stream a log file to Telegram in real time
+    ping      Verify API credentials and network connectivity
+    version   Print the installed tgzero version
+
+  Examples:
+    tgzero send -m "Backup complete"
+    tgzero ask -p "Deploy to prod?" -b "Deploy,Abort"
+    tgzero daemon --allow-list "status,reboot"
+    tgzero run "df -h"
+    tgzero tail /var/log/nginx/error.log --filter "error,warn"
+
+  Config:   TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in telegram.env or environment.
+
+  Run  tgzero COMMAND --help  for full options.
+""")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -29,14 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
-    subparsers.required = True
+    subparsers.required = False  # We handle the no-command case ourselves
 
     # -------------------------------------------------------------------------
     # tgzero send
     # -------------------------------------------------------------------------
     send_p = subparsers.add_parser(
         "send",
-        help="Fire-and-forget Telegram notification.",
+        help="Send a one-way alert or notification.",
         description=(
             "Sends a one-way notification to the configured Telegram chat.\n"
             "Ideal for cron jobs, pipeline completions, and background alerts."
@@ -66,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     # -------------------------------------------------------------------------
     ask_p = subparsers.add_parser(
         "ask",
-        help="Pause script execution until a Telegram reply is received.",
+        help="Pause script and wait for button-click approval.",
         description=(
             "Synchronous C2 gatekeeper.  Sends a prompt with optional inline\n"
             "keyboard buttons and blocks until the authorised user replies.\n\n"
@@ -118,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     # -------------------------------------------------------------------------
     daemon_p = subparsers.add_parser(
         "daemon",
-        help="Long-running Telegram C2 agent (for systemd / Docker).",
+        help="Enable remote control: execute commands from Telegram.",
         description=(
             "Monitors Telegram for ad-hoc administrative commands.\n"
             "Only commands listed in --allow-list are executed.\n"
@@ -140,6 +174,85 @@ def build_parser() -> argparse.ArgumentParser:
         help="Polling frequency in seconds (default: 3).",
     )
 
+    # -------------------------------------------------------------------------
+    # tgzero run
+    # -------------------------------------------------------------------------
+    run_p = subparsers.add_parser(
+        "run",
+        help="Execute a command and send its output to Telegram.",
+        description=(
+            "Runs a shell command locally and sends the output, exit code,\n"
+            "and elapsed time to Telegram when it completes.\n\n"
+            "Example:\n"
+            "  tgzero run \"df -h\"\n"
+            "  tgzero run \"pg_dump mydb > backup.sql\"\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    run_p.add_argument(
+        "command_str",
+        metavar="COMMAND",
+        help="Shell command to execute (quote if it contains spaces or flags).",
+    )
+
+    # -------------------------------------------------------------------------
+    # tgzero tail
+    # -------------------------------------------------------------------------
+    tail_p = subparsers.add_parser(
+        "tail",
+        help="Stream a log file to Telegram in real time.",
+        description=(
+            "Watches a file for new lines and forwards them to Telegram.\n"
+            "Seeks to the end on startup — does not replay existing content.\n"
+            "Lines are batched to avoid flooding the Telegram API.\n\n"
+            "Example:\n"
+            "  tgzero tail /var/log/nginx/error.log\n"
+            "  tgzero tail /var/log/app.log --filter \"error,critical\" --label \"app\"\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tail_p.add_argument(
+        "file",
+        metavar="FILE",
+        help="Path to the file to watch.",
+    )
+    tail_p.add_argument(
+        "--filter", "-f",
+        default=None,
+        metavar="KEYWORDS",
+        help="Comma-separated keywords; only matching lines are forwarded (case-insensitive).",
+    )
+    tail_p.add_argument(
+        "--label", "-l",
+        default=None,
+        metavar="NAME",
+        help="Display name shown in Telegram messages (defaults to the file path).",
+    )
+
+    # -------------------------------------------------------------------------
+    # tgzero ping
+    # -------------------------------------------------------------------------
+    subparsers.add_parser(
+        "ping",
+        help="Verify API credentials and network connectivity.",
+        description=(
+            "Loads TELEGRAM_TOKEN and TELEGRAM_CHAT_ID, sends a test message,\n"
+            "and confirms the connection is working.\n\n"
+            "Exit codes:\n"
+            "  0  Test message delivered successfully\n"
+            "  1  Delivery failed (bad token, wrong chat ID, no network)\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # -------------------------------------------------------------------------
+    # tgzero version
+    # -------------------------------------------------------------------------
+    subparsers.add_parser(
+        "version",
+        help="Print the installed tgzero version.",
+    )
+
     return parser
 
 
@@ -147,13 +260,27 @@ def main() -> None:
     parser = build_parser()
     args   = parser.parse_args()
 
-    # Lazy imports keep startup fast and avoid circular deps
-    if args.command == "send":
+    # No command supplied — print friendly overview instead of an error
+    if not args.command:
+        _print_welcome()
+        sys.exit(0)
+
+    if args.command == "version":
+        print(f"tgzero {__version__}")
+        sys.exit(0)
+
+    if args.command == "ping":
+        from .cmd_ping import run
+    elif args.command == "send":
         from .cmd_send import run
     elif args.command == "ask":
         from .cmd_ask import run
     elif args.command == "daemon":
         from .cmd_daemon import run
+    elif args.command == "run":
+        from .cmd_run import run
+    elif args.command == "tail":
+        from .cmd_tail import run
     else:
         parser.print_help()
         sys.exit(1)
