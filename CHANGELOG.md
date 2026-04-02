@@ -6,6 +6,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.1] - 2026-04-02
+
+### Fixed
+- README updated to cover all commands introduced in `0.2.0` (`run`, `tail`,
+  `ping`, `version`) — previously only `send`, `ask`, and `daemon` were documented
+- Project tagline corrected to match description used across all other files:
+  *Zero-dependency, stdlib-only Telegram bridge for two-way CLI automation.*
+
+---
+
 ## [0.2.0] - 2026-04-02
 
 ### Added
