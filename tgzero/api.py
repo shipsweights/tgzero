@@ -74,6 +74,21 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def is_long(output: str, *, max_lines: int = 40, max_output: int = 3500) -> bool:
+    """True if output is too long to show inline (callers then attach the full text)."""
+    raw = strip_ansi(output) if output else ""
+    return raw.count("\n") + 1 > max_lines or len(sanitize(raw)) > max_output
+
+
+def _preview(text: str, max_lines: int, head: int = 15, tail: int = 10) -> str:
+    """First `head` and last `tail` lines with an omission marker, if text has > max_lines lines."""
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text
+    omitted = len(lines) - head - tail
+    return "\n".join(lines[:head] + [f"... [{omitted} lines omitted] ..."] + lines[-tail:])
+
+
 def format_command_block(
     command: str,
     output: str,
@@ -81,6 +96,8 @@ def format_command_block(
     status_emoji: str | None = None,
     meta: str | None = None,
     max_output: int = 3500,
+    max_lines: int = 40,
+    truncated_note: str = "output truncated",
 ) -> str:
     """Builds a terminal-like HTML block: "$ command" header + <pre> output.
 
@@ -104,6 +121,8 @@ def format_command_block(
         status_emoji:  Optional leading emoji, e.g. "✅" / "❌" / "⏱".
         meta:          Optional second line (exit code, timing, etc.) — HTML
                        already safe, inserted as-is.
+        max_lines:     Longer output is shown as head + tail preview.
+        truncated_note: Italic note under a truncated block (e.g. "full output attached").
         max_output:    Output is truncated to this many characters before
                        being wrapped in <pre>, leaving headroom for the
                        header within Telegram's 4096-char message limit.
@@ -111,11 +130,17 @@ def format_command_block(
     Returns:
         A single HTML string ready to pass to send_message().
     """
-    clean = sanitize(strip_ansi(output)) if output else ""
+    raw = strip_ansi(output) if output else ""
     truncated = False
-    if len(clean) > max_output:
-        clean = clean[:max_output]
+    if is_long(raw, max_lines=max_lines, max_output=max_output):
+        raw = _preview(raw, max_lines)
         truncated = True
+    # Trim the RAW text (not the escaped one) so we never cut an entity like
+    # "&amp;" in half; re-check because escaping makes the text longer.
+    while len(sanitize(raw)) > max_output:
+        raw = raw[:int(len(raw) * 0.9)]
+        truncated = True
+    clean = sanitize(raw)
 
     header = f"<b>$ {sanitize(command)}</b>"
     if status_emoji:
@@ -128,7 +153,7 @@ def format_command_block(
     if clean.strip():
         body = f"<pre>{clean}</pre>"
         if truncated:
-            body += "\n<i>... output truncated</i>"
+            body += f"\n<i>... {truncated_note}</i>"
     else:
         body = "<pre>(no output)</pre>"
     lines.append(body)

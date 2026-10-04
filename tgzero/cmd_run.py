@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-from .api    import format_command_block, ok, send_message
+from .api    import format_command_block, is_long, ok, send_document, send_message, strip_ansi
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -81,10 +81,15 @@ def run(args) -> int:
         f"Exit: <code>{result.returncode}</code> · "
         f"Took: {elapsed:.1f}s"
     )
+    long = is_long(output, max_output=MAX_OUTPUT)
     text = format_command_block(command, output, status_emoji=status, meta=meta,
-                                max_output=MAX_OUTPUT)
+                                max_output=MAX_OUTPUT,
+                                truncated_note="preview — full output attached" if long
+                                else "output truncated")
 
     sent = send_message(token, chat_id, text)
+    if long and ok(sent):
+        send_document(token, chat_id, "output.txt", strip_ansi(output))
 
     # Also print locally (raw, with ANSI intact — this is the real terminal)
     if output:

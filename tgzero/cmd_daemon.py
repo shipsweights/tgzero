@@ -24,7 +24,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from .api    import format_command_block, get_updates, ok, sanitize, send_message, strip_ansi
+from .api    import (format_command_block, get_updates, is_long, ok, sanitize,
+                     send_document, send_message, strip_ansi)
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -97,7 +98,7 @@ def _flush_stale(token: str) -> int | None:
 
 
 def _execute_command(command: str) -> str:
-    """Runs an allow-listed command and returns its output (truncated to 3900 chars)."""
+    """Runs an allow-listed command and returns its full, ANSI-stripped output."""
     result = subprocess.run(
         shlex.split(command),
         shell=False,           # Never shell=True — command is a plain string
@@ -105,10 +106,7 @@ def _execute_command(command: str) -> str:
         text=True,
         timeout=_CMD_TIMEOUT_S,
     )
-    output = strip_ansi(result.stdout + result.stderr).strip()
-    if len(output) > 3900:
-        output = output[:3900] + "\n... [truncated]"
-    return output
+    return strip_ansi(result.stdout + result.stderr).strip()
 
 
 def _make_signal_handler(token: str, chat_id: str):
@@ -222,7 +220,13 @@ def run(args) -> int:
                 print(f"{GREEN}Executing: '{text}'{RESET}")
                 output = _execute_command(text)
                 last_cmd_time = time.monotonic()
-                _notify(token, chat_id, format_command_block(text, output))
+                long = is_long(output)
+                _notify(token, chat_id, format_command_block(
+                    text, output,
+                    truncated_note="preview — full output attached" if long
+                    else "output truncated"))
+                if long:
+                    send_document(token, chat_id, "output.txt", output)
             except subprocess.TimeoutExpired:
                 _notify(token, chat_id, format_command_block(
                     text, "", status_emoji="⏱",
