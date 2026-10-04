@@ -16,9 +16,8 @@ import shlex
 import subprocess
 import sys
 import time
-from datetime import datetime
 
-from .api    import format_command_block, ok, sanitize, send_message
+from .api    import format_command_block, ok, send_message
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -46,7 +45,6 @@ def run(args) -> int:
     print(f"{YELLOW}Running: {command}{RESET}")
 
     start   = time.monotonic()
-    started = datetime.now().strftime("%H:%M:%S")
 
     try:
         result = subprocess.run(
@@ -64,12 +62,15 @@ def run(args) -> int:
         print(f"{RED}Timed out after {elapsed:.0f}s{RESET}")
         return 2
     except FileNotFoundError:
-        msg = f"⚠️ Command not found: <code>{sanitize(command)}</code>"
+        msg = format_command_block(command, "", status_emoji="⚠️",
+                                   meta="Command not found")
         send_message(token, chat_id, msg)
         print(f"{RED}Command not found: {command}{RESET}")
         return 1
     except Exception as e:  # noqa: BLE001
-        send_message(token, chat_id, f"⚠️ Failed to run command: {sanitize(str(e))}")
+        msg = format_command_block(command, str(e), status_emoji="⚠️",
+                                   meta="Failed to run command")
+        send_message(token, chat_id, msg)
         return 1
 
     elapsed = time.monotonic() - start
@@ -78,7 +79,6 @@ def run(args) -> int:
 
     meta = (
         f"Exit: <code>{result.returncode}</code> · "
-        f"Started: {started} · "
         f"Took: {elapsed:.1f}s"
     )
     text = format_command_block(command, output, status_emoji=status, meta=meta,

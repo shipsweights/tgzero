@@ -130,7 +130,7 @@ def format_command_block(
         if truncated:
             body += "\n<i>... output truncated</i>"
     else:
-        body = "<i>(no output)</i>"
+        body = "<pre>(no output)</pre>"
     lines.append(body)
 
     return "\n".join(lines)
