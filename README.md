@@ -170,7 +170,7 @@ Get a Telegram message when a Claude Code session stops and needs you; reply
    unanswered prompts, default 6 h).
 
 If you answer on the PC instead, the Telegram message is marked
-"✅ Odpowiedziano na PC" and its buttons are removed.
+"✅ Answered on PC" and its buttons are removed.
 
 > `bridge` must be the only process polling this bot. Don't run `ask` or
 > `daemon` with the same token at the same time.

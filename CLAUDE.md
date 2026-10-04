@@ -247,7 +247,7 @@ Test ścieżki "odpowiedziano na PC" (bez czekania na Telegram):
 echo '{"hook_event_name":"UserPromptSubmit","session_id":"test-1","prompt":"tak, zrestartuj"}' \
   | tgzero hook
 # W ciągu ~15s (cykl bridge'a) wiadomość na Telegramie powinna zmienić się
-# na "✅ Odpowiedziano na PC" z usuniętymi przyciskami.
+# na "✅ Answered on PC" z usuniętymi przyciskami.
 ```
 
 Podgląd stanu kolejki żądań bez grzebania w kodzie:

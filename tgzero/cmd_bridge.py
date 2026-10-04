@@ -91,13 +91,13 @@ def _prompt_message(req: dict, *, suffix: str = "") -> str:
     resolution line (answer / "answered on PC" / expired) at the bottom.
     """
     project = sanitize(req.get("project") or "?")
-    body    = req.get("context_text") or req.get("prompt_text") or "(brak treści)"
+    body    = req.get("context_text") or req.get("prompt_text") or "(no content)"
     header  = f"🤖 <b>[{project}]</b>"
     text    = f"{header}\n<pre>{sanitize(body)}</pre>"
     if suffix:
         text += f"\n{suffix}"
     else:
-        text += "\n<i>Odpowiedz (reply) na tę wiadomość, aby wysłać polecenie do terminala.</i>"
+        text += "\n<i>Reply to this message to send your answer to the terminal.</i>"
     return text
 
 
@@ -127,7 +127,7 @@ def _sync_pc_answers(token: str, chat_id: str) -> None:
         mid = req.get("message_id")
         if mid:
             edit_message_text(token, chat_id, mid,
-                              _prompt_message(req, suffix="✅ <b>Odpowiedziano na PC.</b>"),
+                              _prompt_message(req, suffix="✅ <b>Answered on PC.</b>"),
                               buttons=[])
         state.delete(req["id"])
         print(f"{BLUE}✓ {req['id']} resolved on PC{RESET}")
@@ -143,7 +143,7 @@ def _expire_stale(token: str, chat_id: str, ttl: float) -> None:
         mid = req.get("message_id")
         if mid:
             edit_message_text(token, chat_id, mid,
-                              _prompt_message(req, suffix="⌛ <b>Wygasło — brak odpowiedzi.</b>"),
+                              _prompt_message(req, suffix="⌛ <b>Expired — no answer.</b>"),
                               buttons=[])
         state.delete(req["id"])
         print(f"{YELLOW}⌛ {req['id']} expired{RESET}")
@@ -172,8 +172,8 @@ def _resolve_with_answer(token: str, chat_id: str, req: dict, answer_text: str) 
 
     suffix = f"✅ → {sanitize(answer_text)}"
     if not injected:
-        suffix += ("\n⚠️ <i>Nie udało się wpisać odpowiedzi w terminalu "
-                   "(brak panelu tmux albo tmux niedostępny) — wpisz ręcznie na PC.</i>")
+        suffix += ("\n⚠️ <i>Could not type the answer into the terminal "
+                   "(no tmux pane, or tmux unavailable) — type it manually on the PC.</i>")
 
     mid = req.get("message_id")
     if mid:
@@ -216,8 +216,8 @@ def _handle_message(token: str, chat_id: str, msg: dict) -> None:
         req = _find_single_pending()
     if req is None:
         send_message(token, chat_id,
-                     "⚠️ Nie wiem, do którego żądania to odpowiedź — "
-                     "odpowiedz (reply) bezpośrednio na konkretną wiadomość.")
+                     "⚠️ I can't tell which request this answer belongs to — "
+                     "please reply directly to the specific message.")
         return
 
     _resolve_with_answer(token, chat_id, req, text)
