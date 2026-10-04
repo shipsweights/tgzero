@@ -108,7 +108,7 @@ def _execute_command(command: str) -> str:
     output = strip_ansi(result.stdout + result.stderr).strip()
     if len(output) > 3900:
         output = output[:3900] + "\n... [truncated]"
-    return output or "(no output)"
+    return output
 
 
 def _make_signal_handler(token: str, chat_id: str):
@@ -224,14 +224,12 @@ def run(args) -> int:
                 last_cmd_time = time.monotonic()
                 _notify(token, chat_id, format_command_block(text, output))
             except subprocess.TimeoutExpired:
-                _notify(
-                    token, chat_id,
-                    f"⚠️ Command '{sanitize(text)}' timed out after {_CMD_TIMEOUT_S}s.",
-                )
+                _notify(token, chat_id, format_command_block(
+                    text, "", status_emoji="⏱",
+                    meta=f"Command timed out after {_CMD_TIMEOUT_S}s."))
             except Exception as e:  # noqa: BLE001
-                _notify(
-                    token, chat_id,
-                    f"⚠️ Error executing '{sanitize(text)}': {sanitize(str(e))}",
-                )
+                _notify(token, chat_id, format_command_block(
+                    text, str(e), status_emoji="⚠️",
+                    meta="Error executing command"))
 
         time.sleep(interval)
