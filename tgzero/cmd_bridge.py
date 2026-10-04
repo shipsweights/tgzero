@@ -180,6 +180,8 @@ def _resolve_with_answer(token: str, chat_id: str, req: dict, answer_text: str) 
         edit_message_text(token, chat_id, mid, _prompt_message(req, suffix=suffix), buttons=[])
 
     state.delete(req["id"])
+    print(f"{GREEN}← {req['id']} answered via Telegram: "
+          f"{answer_text[:60]!r}{'' if injected else ' (tmux inject FAILED)'}{RESET}")
 
 
 def _handle_callback(token: str, chat_id: str, cb: dict) -> None:
@@ -215,6 +217,8 @@ def _handle_message(token: str, chat_id: str, msg: dict) -> None:
     if req is None:
         req = _find_single_pending()
     if req is None:
+        print(f"{YELLOW}? ignored message {text[:60]!r}: no matching open request "
+              f"(reply_to={reply_to['message_id'] if reply_to else None}){RESET}")
         send_message(token, chat_id,
                      "⚠️ I can't tell which request this answer belongs to — "
                      "please reply directly to the specific message.")
