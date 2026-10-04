@@ -8,7 +8,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Sync of the working directory (newer than origin). Version not bumped.
+---
+
+## [0.3.0] - 2026-10-04
+
+Claude Code bridge/hook release, plus terminal-style output formatting.
 
 ### Added
 - `api.py` — all Telegram Bot API communication (`sanitize`, `strip_ansi`,
@@ -26,6 +30,9 @@ Sync of the working directory (newer than origin). Version not bumped.
   `<pre>(no output)</pre>`; dropped redundant `Started` from the meta line
 - `run`, `daemon` — output over 40 lines (or the char limit) is sent as a
   head + tail preview plus the full text as an `output.txt` attachment
+
+- `bridge` — logs answers routed from Telegram (with tmux inject failures)
+  and messages ignored because no open request matches
 
 ### Fixed
 - `format_command_block`, `tail` — truncation could cut an HTML entity
