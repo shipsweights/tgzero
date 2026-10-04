@@ -134,7 +134,8 @@ time to Telegram when it completes. Times out after 5 minutes by default.
 tgzero run "df -h"
 
 # Run a database backup and get notified when done
-tgzero run "pg_dump mydb > /backups/mydb.sql"
+# (no shell: redirects/pipes don't work — use the tool's own output flag)
+tgzero run "pg_dump mydb -f /backups/mydb.sql"
 
 # Any command with flags — quote the whole thing
 tgzero run "journalctl -u nginx --since today --no-pager"
@@ -143,7 +144,7 @@ tgzero run "journalctl -u nginx --since today --no-pager"
 **What you receive in Telegram:**
 ```
 ✅ $ df -h
-Exit: 0 · Started: 14:32:01 · Took: 0.1s
+Exit: 0 · Took: 0.1s
 
 Filesystem      Size  Used Avail Use% Mounted on
 /dev/sda1        50G   12G   36G  25% /
@@ -220,7 +221,9 @@ tgzero --version
   is never passed to a shell.
 - All user-supplied text embedded in Telegram HTML messages is passed through
   `sanitize()` — escaping `&`, `<`, `>`, and `"` — before sending.
-- Messages longer than 4096 characters are cleanly truncated.
+- Long output (over 40 lines or Telegram's 4096-char limit) is shown as a
+  head + tail preview, with the full output attached as `output.txt`
+  (`run` and `daemon`); `tail` batches are truncated.
 - The lock file used by `ask` is stored in a per-user `0700` directory
   (`$XDG_RUNTIME_DIR` when available) and is `chmod 600` on creation.
 - The `.env` file permissions are checked on startup; a warning is printed if

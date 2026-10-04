@@ -91,12 +91,14 @@ def run(args) -> int:
         # log line containing "<" or "&" could break the HTML parse mode (or
         # worse, inject markup) and colored log output would leak raw escape
         # bytes into the message.
-        clean_lines = [sanitize(strip_ansi(l)) for l in batch]
-        body = "\n".join(clean_lines)
+        # Trim the raw text before escaping, so an entity like "&amp;" is
+        # never cut in half (which breaks Telegram's HTML parser).
+        raw = "\n".join(strip_ansi(l) for l in batch)
         truncated = False
-        if len(body) > _MAX_BATCH:
-            body = body[:_MAX_BATCH]
+        while len(sanitize(raw)) > _MAX_BATCH:
+            raw = raw[:int(len(raw) * 0.9)]
             truncated = True
+        body = sanitize(raw)
 
         text = f"<b>📄 {label}</b>\n<pre>{body}</pre>"
         if truncated:

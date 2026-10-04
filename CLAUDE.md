@@ -186,11 +186,13 @@ tgzero run "df -h"
 # nie połamać <pre> ani nie zniknąć
 tgzero run 'echo "<script>alert(1)</script> & \"cytat\" <tag>"'
 
-# Długi output — sprawdź obcinanie i komunikat "... output truncated"
-tgzero run "yes 'linia testowa z jakims tekstem' | head -c 10000"
+# Długi output — podgląd (15 pierwszych + 10 ostatnich linii) + załącznik output.txt
+# (bez shell=True pipe'y nie działają — | trafiłby jako argument)
+tgzero run "ls -la /etc"
 
 # Kod wyjścia != 0 — sprawdź ❌ i poprawny <code>exit code</code>
-tgzero run "exit 42"
+# (exit to builtin powłoki — bez shella "exit 42" daje "Command not found")
+tgzero run "ls /nie-ma"
 
 # Timeout — sprawdź ⏱ i że wiadomość faktycznie przychodzi
 tgzero run --timeout 2 "sleep 5"
@@ -213,7 +215,7 @@ Telegram) tak, jak go zobaczy użytkownik.
 - brak widocznych `\x1b[` / `[91m` itp. w treści,
 - `<`, `>`, `&`, `"` pokazują się jako normalne znaki, nie psują formatowania wiadomości,
 - blok z outputem jest czcionką monospace (`<pre>`),
-- długi output faktycznie się obcina z `... output truncated`, a nie wywala wysyłki,
+- długi output przychodzi jako podgląd z `... preview — full output attached` + plik `output.txt`, a nie wywala wysyłki,
 - `$ komenda` w nagłówku jest czytelna nawet gdy komenda zawiera cudzysłowy.
 
 ## Testowanie bridge + hook (bez prawdziwego Claude Code)

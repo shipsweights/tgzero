@@ -21,6 +21,15 @@ Sync of the working directory (newer than origin). Version not bumped.
 ### Changed
 - `cli.py`, `config.py`, `lock.py`, `cmd_ask/daemon/ping/run/send/tail.py` —
   updated to use `api.py` and the new bridge/hook flow (see git diff)
+- `run`, `daemon` — timeout/error/"command not found" messages use the same
+  `$ command` + `<pre>` layout as normal output; empty output is shown as
+  `<pre>(no output)</pre>`; dropped redundant `Started` from the meta line
+- `run`, `daemon` — output over 40 lines (or the char limit) is sent as a
+  head + tail preview plus the full text as an `output.txt` attachment
+
+### Fixed
+- `format_command_block`, `tail` — truncation could cut an HTML entity
+  (e.g. `&amp;`) in half and break Telegram's HTML parsing
 
 ---
 
