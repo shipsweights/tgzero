@@ -13,7 +13,7 @@ import json
 import sys
 import time
 
-from .api    import send_message
+from .api    import ok, send_message
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -42,21 +42,22 @@ def run(args) -> int:
         return 1
 
     start_ms = time.monotonic()
-    ok = send_message(token, chat_id, args.msg, silent=args.silent)
+    result = send_message(token, chat_id, args.msg, silent=args.silent)
+    success = ok(result)
     latency_ms = int((time.monotonic() - start_ms) * 1000)
 
     if args.json:
         payload = {
-            "status":      "success" if ok else "error",
+            "status":      "success" if success else "error",
             "action":      "send",
-            "exit_code":   0 if ok else 1,
+            "exit_code":   0 if success else 1,
             "latency_ms":  latency_ms,
         }
         print(json.dumps(payload))
     else:
-        if ok:
+        if success:
             print(f"{GREEN}Message sent successfully.{RESET}")
         else:
             print(f"{RED}Failed to send message.{RESET}")
 
-    return 0 if ok else 1
+    return 0 if success else 1

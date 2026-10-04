@@ -6,6 +6,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+Sync of the working directory (newer than origin). Version not bumped.
+
+### Added
+- `api.py` — all Telegram Bot API communication (`sanitize`, `strip_ansi`,
+  `format_command_block`, `_normalize`, `ok`, `message_id`)
+- `state.py` — file-based request queue between hook and bridge
+- `cmd_hook.py` — `tgzero hook` producer for Claude Code (`Stop`/`UserPromptSubmit`)
+- `cmd_bridge.py` — `tgzero bridge` long-running `getUpdates` poller routing replies to tmux
+- `CLAUDE.md`, `CLAUDE_CODE_INTEGRATION.md` — project workflow and integration docs
+
+### Changed
+- `cli.py`, `config.py`, `lock.py`, `cmd_ask/daemon/ping/run/send/tail.py` —
+  updated to use `api.py` and the new bridge/hook flow (see git diff)
+
+---
+
 ## [0.2.2] - 2026-04-02
 
 Security and reliability hardening across the codebase. No new features.

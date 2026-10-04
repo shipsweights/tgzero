@@ -22,7 +22,7 @@ import signal
 import sys
 import time
 
-from .api    import send_message
+from .api    import sanitize, send_message, strip_ansi
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -58,7 +58,7 @@ def run(args) -> int:
 
     filepath = args.file
     filters  = [f.strip() for f in args.filter.split(",") if f.strip()] if args.filter else []
-    label    = args.label or filepath
+    label    = sanitize(args.label or filepath)
 
     try:
         f = open(filepath, "r", errors="replace")
@@ -86,9 +86,22 @@ def run(args) -> int:
     def flush_batch():
         if not batch:
             return
-        text = f"<b>📄 {label}</b>\n<pre>" + "\n".join(batch) + "</pre>"
-        if len(text) > _MAX_BATCH:
-            text = text[:_MAX_BATCH] + "\n... [truncated]</pre>"
+        # ANSI-strip and HTML-sanitize each raw line before it goes anywhere
+        # near <pre> — previously this went out completely unsanitized, so a
+        # log line containing "<" or "&" could break the HTML parse mode (or
+        # worse, inject markup) and colored log output would leak raw escape
+        # bytes into the message.
+        clean_lines = [sanitize(strip_ansi(l)) for l in batch]
+        body = "\n".join(clean_lines)
+        truncated = False
+        if len(body) > _MAX_BATCH:
+            body = body[:_MAX_BATCH]
+            truncated = True
+
+        text = f"<b>📄 {label}</b>\n<pre>{body}</pre>"
+        if truncated:
+            text += "\n<i>... [truncated]</i>"
+
         send_message(token, chat_id, text)
         batch.clear()
 

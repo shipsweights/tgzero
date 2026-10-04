@@ -10,6 +10,8 @@ tgzero ask     --prompt "…" [--buttons "A,B"] [--timeout N] [--json]
 tgzero daemon  --allow-list "cmd1,cmd2" [--interval N]
 tgzero run     "shell command"
 tgzero tail    <file> [--filter "keyword"] [--label "name"]
+tgzero bridge  [--ttl SECONDS]
+tgzero hook                      (invoked by Claude Code, not by hand)
 tgzero ping
 tgzero version
 """
@@ -33,6 +35,8 @@ def _print_welcome() -> None:
     daemon    Enable remote control: execute commands from Telegram
     run       Execute a command and send its output to Telegram
     tail      Stream a log file to Telegram in real time
+    bridge    Run the Claude Code ↔ Telegram bridge (one per machine)
+    hook      Claude Code hook entry point — not meant to be run by hand
     ping      Verify API credentials and network connectivity
     version   Print the installed tgzero version
 
@@ -42,6 +46,7 @@ def _print_welcome() -> None:
     tgzero daemon --allow-list "status,reboot"
     tgzero run "df -h"
     tgzero tail /var/log/nginx/error.log --filter "error,warn"
+    tgzero bridge
 
   Config:   TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in telegram.env or environment.
 
@@ -194,6 +199,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="COMMAND",
         help="Shell command to execute (quote if it contains spaces or flags).",
     )
+    run_p.add_argument(
+        "--timeout", "-t",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Kill the command if it runs longer than this (default: 300s).",
+    )
 
     # -------------------------------------------------------------------------
     # tgzero tail
@@ -227,6 +239,47 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="NAME",
         help="Display name shown in Telegram messages (defaults to the file path).",
+    )
+
+    # -------------------------------------------------------------------------
+    # tgzero bridge
+    # -------------------------------------------------------------------------
+    bridge_p = subparsers.add_parser(
+        "bridge",
+        help="Run the Claude Code ↔ Telegram bridge (one instance per machine).",
+        description=(
+            "Long-running process that turns `tgzero hook` requests into\n"
+            "Telegram messages and routes replies back into the originating\n"
+            "terminal via tmux. This is the ONLY process that should call\n"
+            "Telegram's getUpdates for this chat while it runs — don't run\n"
+            "`tgzero ask` or `tgzero daemon` against the same token/chat at\n"
+            "the same time.\n\n"
+            "See README, \"Claude Code integration\", for the Stop /\n"
+            "UserPromptSubmit hook wiring this expects.\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    bridge_p.add_argument(
+        "--ttl",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Expire an unanswered prompt after this long (default: 21600 / 6h).",
+    )
+
+    # -------------------------------------------------------------------------
+    # tgzero hook
+    # -------------------------------------------------------------------------
+    subparsers.add_parser(
+        "hook",
+        help="Claude Code hook entry point (not meant to be run by hand).",
+        description=(
+            "Reads a Claude Code hook payload (JSON) from stdin and writes a\n"
+            "request for `tgzero bridge` to pick up. Takes no flags — wire it\n"
+            "into Claude Code's settings.json as the command for the Stop and\n"
+            "UserPromptSubmit hooks. See README, \"Claude Code integration\".\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     # -------------------------------------------------------------------------
@@ -281,6 +334,10 @@ def main() -> None:
         from .cmd_run import run
     elif args.command == "tail":
         from .cmd_tail import run
+    elif args.command == "bridge":
+        from .cmd_bridge import run
+    elif args.command == "hook":
+        from .cmd_hook import run
     else:
         parser.print_help()
         sys.exit(1)

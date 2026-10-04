@@ -15,9 +15,15 @@ Design notes
   (the nonce is checked against a side-file that only the real holder knows).
 * All public helpers raise LockError on unrecoverable failure so callers can
   map cleanly to exit code 4 (Queue Timeout).
+* Locks are named (default "tgzero", matching the original single global
+  lock exactly). A caller that wants independent queues — e.g. a future
+  bridge serialising prompts per Claude Code session instead of globally
+  across every terminal — passes its own `name` and gets its own lockfile
+  and its own held-nonce slot, without colliding with anyone else's lock.
 """
 
 import os
+import re
 import secrets
 import stat
 import tempfile
@@ -55,8 +61,13 @@ def _lock_dir() -> str:
     return uid_dir
 
 
-def _lock_path() -> str:
-    return os.path.join(_lock_dir(), "tgzero.lock")
+_VALID_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _lock_path(name: str) -> str:
+    if not _VALID_NAME.match(name):
+        raise LockError(f"Invalid lock name: {name!r}")
+    return os.path.join(_lock_dir(), f"{name}.lock")
 
 
 # ---------------------------------------------------------------------------
@@ -123,32 +134,36 @@ def _try_create_lock(path: str) -> str | None:
     return nonce
 
 
-# Module-level nonce so release() can verify we still own the lock
-_held_nonce: str | None = None
+# Held nonces, keyed by lock name, so a single process (e.g. a future bridge
+# juggling several named/per-session locks at once) can hold more than one
+# lock concurrently without them clobbering each other's release() check.
+_held_nonces: dict[str, str] = {}
+
+_DEFAULT_NAME = "tgzero"  # unchanged from before locks were named
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def acquire(queue_timeout: float | None = None) -> None:
-    """Blocks until the lock is acquired or *queue_timeout* seconds elapse.
+def acquire(queue_timeout: float | None = None, name: str = _DEFAULT_NAME) -> None:
+    """Blocks until the named lock is acquired or *queue_timeout* seconds elapse.
 
     Args:
         queue_timeout: Maximum seconds to wait (None = wait forever).
+        name:          Lock identity. Defaults to the single global lock
+                       every `tgzero ask` has always shared. Pass a distinct
+                       name (e.g. a Claude Code session id) to get an
+                       independent queue that doesn't block on, or get
+                       blocked by, unrelated locks.
 
     Raises:
-        LockError: If the timeout is exceeded.
+        LockError: If the timeout is exceeded, or `name` contains characters
+                   outside [A-Za-z0-9_.-].
     """
-    global _held_nonce
-
-    path     = _lock_path()
+    path     = _lock_path(name)
     deadline = (time.monotonic() + queue_timeout) if queue_timeout is not None else None
 
     while True:
         nonce = _try_create_lock(path)
         if nonce is not None:
-            _held_nonce = nonce
+            _held_nonces[name] = nonce
             return  # We own the lock
 
         # Lock exists — inspect the holder
@@ -173,33 +188,33 @@ def acquire(queue_timeout: float | None = None) -> None:
         # Live holder — check timeout then sleep
         if deadline is not None and time.monotonic() >= deadline:
             raise LockError(
-                f"Could not acquire lock within {queue_timeout}s "
+                f"Could not acquire lock '{name}' within {queue_timeout}s "
                 f"(held by PID {holder_pid})."
             )
 
         time.sleep(_POLL)
 
 
-def release() -> None:
-    """Releases the lock only if we are the confirmed current holder.
+def release(name: str = _DEFAULT_NAME) -> None:
+    """Releases the named lock only if we are the confirmed current holder.
 
     Verifies both PID and nonce before removing, so a slow process that woke
     up after its lock was forcibly cleared never deletes a new holder's lock.
-    Silently ignores all errors.
+    Silently ignores all errors. A no-op if we never held (or already
+    released) this name.
     """
-    global _held_nonce
-
-    if _held_nonce is None:
+    nonce = _held_nonces.get(name)
+    if nonce is None:
         return
 
-    path = _lock_path()
+    path = _lock_path(name)
     info = _read_lock(path)
     if info is not None:
         holder_pid, holder_nonce = info
-        if holder_pid == os.getpid() and holder_nonce == _held_nonce:
+        if holder_pid == os.getpid() and holder_nonce == nonce:
             try:
                 os.remove(path)
             except OSError:
                 pass
 
-    _held_nonce = None
+    _held_nonces.pop(name, None)

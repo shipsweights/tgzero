@@ -24,7 +24,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from .api    import get_updates, sanitize, send_message
+from .api    import format_command_block, get_updates, ok, sanitize, send_message, strip_ansi
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -45,6 +45,17 @@ _MIN_CMD_INTERVAL_S   = 2.0   # minimum seconds between command executions
 
 def _utc_now() -> float:
     return datetime.now(tz=timezone.utc).timestamp()
+
+
+def _notify(token: str, chat_id: str, text: str) -> None:
+    """send_message wrapper that logs (instead of silently swallowing)
+    delivery failures. The daemon can't block on them — a dropped reply just
+    means the operator doesn't see one message — but a *silent* string of
+    failures (bad token, chat blocked the bot, rate limit) previously looked
+    identical to everything working."""
+    result = send_message(token, chat_id, text)
+    if not ok(result):
+        print(f"{RED}Failed to deliver message to Telegram.{RESET}", file=sys.stderr)
 
 
 def _check_clock_drift(updates: list) -> None:
@@ -94,7 +105,7 @@ def _execute_command(command: str) -> str:
         text=True,
         timeout=_CMD_TIMEOUT_S,
     )
-    output = (result.stdout + result.stderr).strip()
+    output = strip_ansi(result.stdout + result.stderr).strip()
     if len(output) > 3900:
         output = output[:3900] + "\n... [truncated]"
     return output or "(no output)"
@@ -104,7 +115,7 @@ def _make_signal_handler(token: str, chat_id: str):
     def handler(signum, frame):  # noqa: ARG001
         sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
         print(f"\n{YELLOW}Signal {sig_name} received — daemon shutting down.{RESET}")
-        send_message(token, chat_id,
+        _notify(token, chat_id,
                      f"🔴 tgzero daemon stopped by system signal ({sig_name}).")
         sys.exit(0)
 
@@ -139,7 +150,7 @@ def run(args) -> int:
         print(f"{YELLOW}Warning: no --allow-list defined. No commands will be executed.{RESET}",
               file=sys.stderr)
 
-    send_message(token, chat_id, "🟢 tgzero daemon started.")
+    _notify(token, chat_id, "🟢 tgzero daemon started.")
 
     # Flush stale messages
     offset = _flush_stale(token)
@@ -151,6 +162,12 @@ def run(args) -> int:
     while True:
         updates = get_updates(token, offset=offset, long_poll_timeout=interval,
                               http_timeout=interval + 5)
+
+        if updates is None:
+            # Transport/API failure — don't advance offset, back off, retry.
+            print(f"{RED}getUpdates failed — retrying in {interval}s.{RESET}", file=sys.stderr)
+            time.sleep(interval)
+            continue
 
         for update in updates:
             offset = update["update_id"] + 1
@@ -185,7 +202,7 @@ def run(args) -> int:
             if text not in allow_list:
                 allowed_str = ", ".join(f'"{c}"' for c in allow_list) if allow_list else "(none)"
                 reply = f"⚠️ Command not permitted. Allowed: {allowed_str}"
-                send_message(token, chat_id, reply)
+                _notify(token, chat_id, reply)
                 print(f"{YELLOW}Rejected: '{text}' not in allow-list.{RESET}")
                 continue
 
@@ -193,7 +210,7 @@ def run(args) -> int:
             elapsed_since_last = time.monotonic() - last_cmd_time
             if elapsed_since_last < _MIN_CMD_INTERVAL_S:
                 cooldown = _MIN_CMD_INTERVAL_S - elapsed_since_last
-                send_message(
+                _notify(
                     token, chat_id,
                     f"⏳ Rate limit: please wait {cooldown:.1f}s before sending another command.",
                 )
@@ -205,18 +222,14 @@ def run(args) -> int:
                 print(f"{GREEN}Executing: '{text}'{RESET}")
                 output = _execute_command(text)
                 last_cmd_time = time.monotonic()
-                # Sanitize output before embedding in HTML
-                send_message(
-                    token, chat_id,
-                    f"<b>$ {sanitize(text)}</b>\n<pre>{sanitize(output)}</pre>",
-                )
+                _notify(token, chat_id, format_command_block(text, output))
             except subprocess.TimeoutExpired:
-                send_message(
+                _notify(
                     token, chat_id,
                     f"⚠️ Command '{sanitize(text)}' timed out after {_CMD_TIMEOUT_S}s.",
                 )
             except Exception as e:  # noqa: BLE001
-                send_message(
+                _notify(
                     token, chat_id,
                     f"⚠️ Error executing '{sanitize(text)}': {sanitize(str(e))}",
                 )

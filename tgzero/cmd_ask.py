@@ -19,7 +19,8 @@ import signal
 import sys
 import time
 
-from .api    import answer_callback_query, get_updates, sanitize, send_message
+from .api    import (answer_callback_query, edit_message_text, get_updates,
+                      make_callback_prefix, message_id, ok, sanitize, send_message)
 from .config import load_config
 from .lock   import LockError, acquire, release
 
@@ -116,14 +117,19 @@ def run(args) -> int:
         offset = _get_offset(token)
 
         # --- Send the prompt -------------------------------------------------
+        # A fixed prefix lets the poll loop recognise replies to *this*
+        # prompt and ignore stray callbacks left over from another ask/daemon
+        # process that might be sharing the same chat.
+        prefix = make_callback_prefix()
         safe_prompt = sanitize(args.prompt)
-        ok = send_message(token, chat_id, f"🤖 <b>{safe_prompt}</b>",
-                          buttons=buttons)
-        if not ok:
+        send_result = send_message(token, chat_id, f"🤖 <b>{safe_prompt}</b>",
+                                   buttons=buttons, callback_prefix=prefix)
+        if not ok(send_result):
             if not args.json:
                 print(f"{RED}Failed to send prompt to Telegram.{RESET}")
             exit_code = 3
             return exit_code
+        prompt_msg_id = message_id(send_result)
 
         if not args.json:
             print(f"{YELLOW}Waiting for Telegram response...{RESET}")
@@ -135,7 +141,12 @@ def run(args) -> int:
             if deadline is not None and time.monotonic() >= deadline:
                 if not args.json:
                     print(f"{YELLOW}Timeout reached — no reply received.{RESET}")
-                send_message(token, chat_id, "⏱ No reply received — timed out.")
+                if prompt_msg_id is not None:
+                    edit_message_text(token, chat_id,
+                                      prompt_msg_id, f"⏱ <b>{safe_prompt}</b>\n(timed out — no reply)",
+                                      buttons=[])
+                else:
+                    send_message(token, chat_id, "⏱ No reply received — timed out.")
                 exit_code = 2
                 break
 
@@ -158,7 +169,20 @@ def run(args) -> int:
                         if not args.json:
                             print(f"{RED}Unauthorized callback from ID: {sender_id}{RESET}")
                         continue
-                    reply_str = cb.get("data", "")
+
+                    data = cb.get("data", "")
+                    cb_prefix, _, idx_str = data.partition(":")
+                    if cb_prefix != prefix:
+                        # Button press meant for a different prompt (e.g. an
+                        # earlier, already-timed-out ask) — ack it so the
+                        # spinner stops, but don't treat it as our answer.
+                        answer_callback_query(token, cb["id"])
+                        continue
+                    try:
+                        reply_str = buttons[int(idx_str)]
+                    except (ValueError, IndexError):
+                        answer_callback_query(token, cb["id"], "Stale button.")
+                        continue
                     answer_callback_query(token, cb["id"])
 
                 # --- Handle plain text reply ---------------------------------
@@ -183,6 +207,12 @@ def run(args) -> int:
                 if not args.json:
                     colour = GREEN if exit_code == 0 else RED
                     print(f"{colour}Reply received: '{reply_str}'{RESET}")
+                if prompt_msg_id is not None:
+                    edit_message_text(
+                        token, chat_id, prompt_msg_id,
+                        f"✅ <b>{safe_prompt}</b>\n→ {sanitize(reply_str)}",
+                        buttons=[],
+                    )
                 break  # inner for-loop — we have our answer
 
             else:

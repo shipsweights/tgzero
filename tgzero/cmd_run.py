@@ -18,7 +18,7 @@ import sys
 import time
 from datetime import datetime
 
-from .api    import sanitize, send_message
+from .api    import format_command_block, ok, sanitize, send_message
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -58,10 +58,8 @@ def run(args) -> int:
         )
     except subprocess.TimeoutExpired:
         elapsed = time.monotonic() - start
-        msg = (
-            f"⏱ <b>$ {sanitize(command)}</b>\n"
-            f"Command timed out after {elapsed:.0f}s."
-        )
+        msg = format_command_block(command, "", status_emoji="⏱",
+                                   meta=f"Command timed out after {elapsed:.0f}s.")
         send_message(token, chat_id, msg)
         print(f"{RED}Timed out after {elapsed:.0f}s{RESET}")
         return 2
@@ -78,29 +76,20 @@ def run(args) -> int:
     output  = (result.stdout + result.stderr).strip()
     status  = "✅" if result.returncode == 0 else "❌"
 
-    # Truncate if needed
-    truncated = False
-    if len(output) > MAX_OUTPUT:
-        output    = output[:MAX_OUTPUT]
-        truncated = True
-
-    # Build Telegram message — sanitize command so injected HTML can't leak
-    header = (
-        f"{status} <b>$ {sanitize(command)}</b>\n"
+    meta = (
         f"Exit: <code>{result.returncode}</code> · "
         f"Started: {started} · "
-        f"Took: {elapsed:.1f}s\n"
+        f"Took: {elapsed:.1f}s"
     )
-    body = f"<pre>{sanitize(output)}</pre>" if output else "<i>(no output)</i>"
-    if truncated:
-        body += "\n<i>... output truncated</i>"
+    text = format_command_block(command, output, status_emoji=status, meta=meta,
+                                max_output=MAX_OUTPUT)
 
-    ok = send_message(token, chat_id, header + body)
+    sent = send_message(token, chat_id, text)
 
-    # Also print locally
+    # Also print locally (raw, with ANSI intact — this is the real terminal)
     if output:
         print(output)
     colour = GREEN if result.returncode == 0 else RED
     print(f"{colour}Exited {result.returncode} in {elapsed:.1f}s{RESET}")
 
-    return 0 if ok else 3
+    return 0 if ok(sent) else 3

@@ -11,7 +11,7 @@ Exit codes
 
 import sys
 
-from .api    import send_message
+from .api    import ok, send_message
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -36,9 +36,9 @@ def run(args) -> int:  # noqa: ARG001  (no args used but signature must match)
     print(f"  Chat ID:  {chat_id}")
     print(f"{YELLOW}Sending test message...{RESET}")
 
-    ok = send_message(token, chat_id, "✅ tgzero ping — connection successful.")
+    result = send_message(token, chat_id, "✅ tgzero ping — connection successful.")
 
-    if ok:
+    if ok(result):
         print(f"{GREEN}Ping successful! Check your Telegram for the test message.{RESET}")
         return 0
     else:
