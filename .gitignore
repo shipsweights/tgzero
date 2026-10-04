@@ -36,3 +36,4 @@ Thumbs.db
 # Tgzero runtime
 /tmp/tgzero.lock
 terminal_access.token
+uwagi*.md
