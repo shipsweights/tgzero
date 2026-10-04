@@ -3,229 +3,198 @@
 > Zero-dependency, stdlib-only Telegram bridge for two-way CLI automation.
 > Simple alerts or interactive command-and-control using nothing but the Python standard library.
 
+| Command | What it does |
+|---------|--------------|
+| [`send`](#tgzero-send) | One-way alert |
+| [`ask`](#tgzero-ask) | Block a script until you tap a button |
+| [`run`](#tgzero-run) | Run a command locally, send its output |
+| [`tail`](#tgzero-tail) | Stream a log file |
+| [`daemon`](#tgzero-daemon) | Run allow-listed commands sent from Telegram |
+| [`bridge` / `hook`](#claude-code-integration) | Answer Claude Code sessions from your phone |
+| `ping` / `version` | Check connectivity / print version |
+
 ---
 
-## Installation
+## Quick start
 
 ```bash
 pip install tgzero
 ```
 
-## Configuration
-
-Create a `telegram.env` file in your working directory (or export the variables in your shell):
+Create `telegram.env` in your working directory (or export the variables):
 
 ```bash
 TELEGRAM_TOKEN=1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi
-TELEGRAM_CHAT_ID=1234567890
+TELEGRAM_CHAT_ID=987654321
 ```
-
-Secure the file:
 
 ```bash
 chmod 600 telegram.env
+tgzero ping        # a test message should arrive
 ```
 
-Verify everything is working:
-
-```bash
-tgzero ping
-```
+> **`TELEGRAM_CHAT_ID` is your user ID, not the bot's.** Send any message to
+> your bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and
+> copy `message.chat.id` (or ask `@userinfobot`). Using the bot's own ID fails
+> with `403: the bot can't send messages to the bot`.
 
 ---
 
 ## Commands
 
-### `tgzero send` — Send a one-way alert or notification
+### tgzero send
 
 ```bash
-# Basic alert
-tgzero send --msg "✅ Weekly backup uploaded to S3."
-
-# Silent (no sound on phone)
-tgzero send -m "Server load is high (85%)" --silent
-
-# Machine-readable output
+tgzero send -m "✅ Weekly backup uploaded to S3."
+tgzero send -m "Server load is high (85%)" --silent   # no sound
 tgzero send -m "Done" --json
 # → {"status": "success", "action": "send", "exit_code": 0, "latency_ms": 312}
 ```
 
----
+### tgzero ask
 
-### `tgzero ask` — Pause script and wait for button-click approval
-
-Pauses your script until you tap a button in Telegram.
+Pauses your script until you tap a button. First button → exit `0`.
 
 ```bash
-# Simple gate — default OK button
-tgzero ask --prompt "Ready to restart nginx?"
-
-# Custom buttons — first button = exit 0, any other = exit 1
-if tgzero ask --prompt "Deploy to production?" --buttons "Deploy,Abort"; then
+if tgzero ask -p "Deploy to production?" -b "Deploy,Abort" --timeout 300; then
     ./deploy.sh
-    tgzero send -m "🚀 Deployment successful!"
-else
-    echo "Aborted."
 fi
 
-# With timeout
-tgzero ask -p "Approve migration?" -b "Approve,Skip" --timeout 300
-
-# Multi-branch with --json
-RESULT=$(tgzero ask -p "Choose environment" -b "Staging,Prod,Dev" --json)
-ENV=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['reply_string'])")
-echo "Deploying to: $ENV"
+# Multiple choices — read the label from JSON
+ENV=$(tgzero ask -p "Environment?" -b "Staging,Prod,Dev" --json \
+      | python3 -c "import sys,json; print(json.load(sys.stdin)['reply_string'])")
 ```
 
-**Exit codes:**
-
-| Code | Meaning |
+| Exit | Meaning |
 |------|---------|
-| `0` | First button clicked (success / go) |
-| `1` | Any other button clicked — literal label printed to stdout |
-| `2` | Timeout — no reply within `--timeout` seconds |
+| `0` | First button |
+| `1` | Other button (label printed to stdout) |
+| `2` | Timeout |
 | `3` | Network / API failure |
-| `4` | Queue timeout — another `ask` is holding the lock |
-| `5` | Terminated by `SIGTERM` / `SIGINT` |
+| `4` | Another `ask` holds the lock |
+| `5` | Terminated (`SIGTERM` / `SIGINT`) |
 
----
+### tgzero run
 
-### `tgzero daemon` — Enable remote control: execute commands from Telegram
-
-Runs in the background (systemd / Docker) and executes allow-listed commands sent via Telegram.
+Runs a command and sends output, exit code and duration. Default timeout: 300 s.
 
 ```bash
-tgzero daemon --allow-list "status,reboot,clear-logs" --interval 3
+tgzero run "df -h"
+tgzero run --timeout 60 "journalctl -u nginx --since today --no-pager"
 ```
 
-**From your phone:** type `status` → bot replies with command output.
-Unrecognised commands get a `⚠️ Command not permitted` reply.
-Rapid commands are rate-limited — a minimum 2-second cooldown is enforced
-between executions.
+> **No shell.** Commands go through `shlex.split` with `shell=False`, so pipes,
+> redirects and builtins (`|`, `>`, `exit`) don't work. Use the tool's own
+> flags instead, e.g. `pg_dump mydb -f backup.sql`.
 
-#### systemd unit example
+What arrives in Telegram:
+
+```
+✅ $ df -h
+Exit: 0 · Took: 0.1s
+Filesystem      Size  Used Avail Use% Mounted on      ← monospace block
+/dev/sda1        50G   12G   36G  25% /
+```
+
+Output longer than 40 lines (or Telegram's 4096-char limit) is shown as a
+preview (first 15 + last 10 lines) and the full text is attached as `output.txt`.
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Done, result delivered |
+| `1` | Command not found / config missing |
+| `2` | Timed out |
+| `3` | Network / API failure |
+
+### tgzero tail
+
+Forwards new lines of a file (starts at the end, batches lines).
+
+```bash
+tgzero tail /var/log/app.log --filter "error,critical" --label "app"
+```
+
+Stop with `Ctrl+C` / `SIGTERM`. A shutdown notice is sent.
+
+### tgzero daemon
+
+Runs commands sent from Telegram, but only those on the allow-list.
+Matching is exact: the message must equal an entry character for character.
+
+```bash
+tgzero daemon --allow-list "df -h,uptime,systemctl status nginx" --interval 3
+```
+
+Other commands get `⚠️ Command not permitted`. Commands are rate-limited (2 s cooldown).
+Long output works as in `run`.
+
+<details>
+<summary>systemd unit</summary>
 
 ```ini
 [Unit]
-Description=tgzero Telegram C2 daemon
+Description=tgzero Telegram daemon
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/myapp
 EnvironmentFile=/opt/myapp/telegram.env
-ExecStart=tgzero daemon --allow-list "status,restart-nginx,clear-logs"
+ExecStart=tgzero daemon --allow-list "df -h,uptime"
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
+</details>
 
 ---
 
-### `tgzero run` — Execute a command and send its output to Telegram
+## Claude Code integration
 
-Runs any shell command locally and sends the output, exit code, and elapsed
-time to Telegram when it completes. Times out after 5 minutes by default.
+Get a Telegram message when a Claude Code session stops and needs you; reply
+(Telegram **reply**) and the text is typed into that terminal.
 
-```bash
-# Check disk usage
-tgzero run "df -h"
+1. Run Claude Code inside **tmux** (replies are injected via `tmux send-keys`).
+2. Add the hook to `~/.claude/settings.json`:
+   ```json
+   {
+     "hooks": {
+       "Stop":             [{ "hooks": [{ "type": "command", "command": "tgzero hook" }] }],
+       "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "tgzero hook" }] }]
+     }
+   }
+   ```
+3. Start one bridge per machine: `tgzero bridge` (`--ttl SECONDS` expires
+   unanswered prompts, default 6 h).
 
-# Run a database backup and get notified when done
-# (no shell: redirects/pipes don't work — use the tool's own output flag)
-tgzero run "pg_dump mydb -f /backups/mydb.sql"
+If you answer on the PC instead, the Telegram message is marked
+"✅ Odpowiedziano na PC" and its buttons are removed.
 
-# Any command with flags — quote the whole thing
-tgzero run "journalctl -u nginx --since today --no-pager"
-```
+> `bridge` must be the only process polling this bot. Don't run `ask` or
+> `daemon` with the same token at the same time.
 
-**What you receive in Telegram:**
-```
-✅ $ df -h
-Exit: 0 · Took: 0.1s
+---
 
-Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda1        50G   12G   36G  25% /
-...
-```
+## Message icons
 
-**Exit codes:**
-
-| Code | Meaning |
+| Icon | Meaning |
 |------|---------|
-| `0` | Command completed and result delivered |
-| `1` | Command not found or config missing |
-| `2` | Command timed out (default: 300s) |
-| `3` | Network / API failure delivering result |
+| ✅ | Exit code 0 |
+| ❌ | Non-zero exit code |
+| ⏱ | Timeout |
+| ⚠️ | Command not found / error / not permitted |
+
+System notices (start, stop, rate limit) never use the `$ command` header.
 
 ---
 
-### `tgzero tail` — Stream a log file to Telegram in real time
+## Security notes
 
-Watches a file for new lines and forwards them to Telegram. Seeks to the end
-on startup — does not replay existing content. Lines are batched to avoid
-flooding the API.
-
-```bash
-# Watch an nginx error log
-tgzero tail /var/log/nginx/error.log
-
-# Forward only lines containing "error" or "critical"
-tgzero tail /var/log/app.log --filter "error,critical"
-
-# Use a friendly label instead of the full file path in Telegram messages
-tgzero tail /var/log/app.log --filter "error,warn" --label "app"
-```
-
-Stop with `Ctrl+C` or `SIGTERM` — the bot sends a shutdown notification to Telegram.
-
----
-
-### `tgzero ping` — Verify API credentials and network connectivity
-
-Sends a test message to confirm your token, chat ID, and network are all
-working. The first command to run after initial setup.
-
-```bash
-tgzero ping
-# Checking credentials...
-#   Token:    1234567890...  (truncated for safety)
-#   Chat ID:  1234567890
-# Sending test message...
-# Ping successful! Check your Telegram for the test message.
-```
-
----
-
-### `tgzero version` — Print the installed tgzero version
-
-```bash
-tgzero version
-# tgzero 0.2.2
-
-# Also available as a flag
-tgzero --version
-```
-
----
-
-## Security Notes
-
-- All messages are validated against `TELEGRAM_CHAT_ID`. Messages from any
-  other sender are logged and ignored. Channel posts and service messages with
-  no sender ID are silently dropped.
-- The `daemon` allow-list uses exact string matching — no shell interpolation.
-- `run`, `daemon`, and `tail` use `shlex.split` + `shell=False` — user input
-  is never passed to a shell.
-- All user-supplied text embedded in Telegram HTML messages is passed through
-  `sanitize()` — escaping `&`, `<`, `>`, and `"` — before sending.
-- Long output (over 40 lines or Telegram's 4096-char limit) is shown as a
-  head + tail preview, with the full output attached as `output.txt`
-  (`run` and `daemon`); `tail` batches are truncated.
-- The lock file used by `ask` is stored in a per-user `0700` directory
-  (`$XDG_RUNTIME_DIR` when available) and is `chmod 600` on creation.
-- The `.env` file permissions are checked on startup; a warning is printed if
-  the file or its parent directory has unsafe permissions. The parent directory
-  write permissions are also checked.
+- Only messages from `TELEGRAM_CHAT_ID` are processed; others are logged and ignored.
+- Never `shell=True`. User input is never passed to a shell.
+- All text sent as HTML is escaped (`&`, `<`, `>`, `"`); ANSI colour codes are stripped.
+- `telegram.env` and its directory are checked for unsafe permissions on startup.
+- The `ask` lock lives in a per-user `0700` directory and is `chmod 600`.
+- Output is sent **as-is**: secrets printed by a command will reach Telegram.
