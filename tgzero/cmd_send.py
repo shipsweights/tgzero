@@ -13,7 +13,7 @@ import json
 import sys
 import time
 
-from .api    import ok, send_message
+from .api    import ok, sanitize, send_message, strip_ansi
 from .config import load_config
 
 # --- Terminal Styling ---
@@ -42,7 +42,8 @@ def run(args) -> int:
         return 1
 
     start_ms = time.monotonic()
-    result = send_message(token, chat_id, args.msg, silent=args.silent)
+    result = send_message(token, chat_id, sanitize(strip_ansi(args.msg)),
+                          silent=args.silent)
     success = ok(result)
     latency_ms = int((time.monotonic() - start_ms) * 1000)
 

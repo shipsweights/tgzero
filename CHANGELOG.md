@@ -10,6 +10,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.1] - 2026-10-04
+
+### Fixed
+- `send` — message text was passed to Telegram unescaped in HTML mode, so a
+  plain `<` (e.g. `a < b`) made the API reject the message; text now goes
+  through `strip_ansi()` + `sanitize()` like every other command
+
+---
+
 ## [0.3.0] - 2026-10-04
 
 Claude Code bridge/hook release, plus terminal-style output formatting.
